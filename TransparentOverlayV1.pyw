@@ -20,11 +20,49 @@ if sys.platform == "win32":
 else:
     CONFIG_DIR = Path.home() / '.config' / APP_NAME_ENGLISH
 
-CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_FILE = CONFIG_DIR / "window_config.json"
 
 # 右键菜单提供的透明度选项
 ALPHA_CHOICES = (0.25, 0.5, 0.75, 0.9, 1.0)
+
+# 界面字体
+UI_FONT = ("Microsoft YaHei UI", 16)
+UI_FONT_BOLD = ("Microsoft YaHei UI", 16, "bold")
+
+
+def clamp_window_state(x, y, w, h, alpha, screen_w, screen_h):
+    """把窗口状态限制在屏幕内，尺寸和透明度保持在可用范围"""
+    x = min(max(x, 0), max(screen_w - 100, 0))
+    y = min(max(y, 0), max(screen_h - 100, 0))
+    w = max(w, 100)
+    h = max(h, 100)
+    alpha = min(max(alpha, 0.1), 1.0)
+    return x, y, w, h, alpha
+
+
+def read_window_state(path, screen_w, screen_h):
+    """读取配置；文件不存在或内容损坏时回到默认值"""
+    x, y, w, h, alpha = 100, 100, screen_w // 4, screen_h // 4, 0.9
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        x = int(data.get("x", x))
+        y = int(data.get("y", y))
+        w = int(data.get("width", w))
+        h = int(data.get("height", h))
+        alpha = float(data.get("alpha", alpha))
+    except (OSError, ValueError, TypeError, AttributeError):
+        x, y, w, h, alpha = 100, 100, screen_w // 4, screen_h // 4, 0.9
+    return clamp_window_state(x, y, w, h, alpha, screen_w, screen_h)
+
+
+def write_window_state(path, x, y, w, h, alpha):
+    path.write_text(json.dumps({
+        "x": x,
+        "y": y,
+        "width": w,
+        "height": h,
+        "alpha": alpha,
+    }), encoding="utf-8")
 
 
 class OverlayApp:
@@ -63,26 +101,8 @@ class OverlayApp:
         self.root.mainloop()
 
     def load_window_geometry(self):
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        x, y, w, h, alpha = 100, 100, sw // 4, sh // 4, 0.9
-        if CONFIG_FILE.exists():
-            try:
-                with open(CONFIG_FILE, 'r') as f:
-                    data = json.load(f)
-                x = int(data.get("x", x))
-                y = int(data.get("y", y))
-                w = int(data.get("width", w))
-                h = int(data.get("height", h))
-                alpha = float(data.get("alpha", alpha))
-            except (OSError, ValueError, TypeError, AttributeError):
-                x, y, w, h, alpha = 100, 100, sw // 4, sh // 4, 0.9
-        # 换显示器或配置损坏时，别让窗口跑到屏幕外、缩成点或全透明
-        x = min(max(x, 0), max(sw - 100, 0))
-        y = min(max(y, 0), max(sh - 100, 0))
-        w = max(w, 100)
-        h = max(h, 100)
-        alpha = min(max(alpha, 0.1), 1.0)
+        x, y, w, h, alpha = read_window_state(
+            CONFIG_FILE, self.root.winfo_screenwidth(), self.root.winfo_screenheight())
         self.root.geometry(f"{w}x{h}+{x}+{y}")
         self.root.attributes('-alpha', alpha)
         self.current_alpha = alpha
@@ -90,14 +110,9 @@ class OverlayApp:
     def save_window_geometry(self):
         if self.root.state() != "normal":
             return  # 最小化/最大化时不保存，避免记下无效坐标
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump({
-                "x": self.root.winfo_x(),
-                "y": self.root.winfo_y(),
-                "width": self.root.winfo_width(),
-                "height": self.root.winfo_height(),
-                "alpha": self.current_alpha,
-            }, f)
+        write_window_state(
+            CONFIG_FILE, self.root.winfo_x(), self.root.winfo_y(),
+            self.root.winfo_width(), self.root.winfo_height(), self.current_alpha)
 
     def start_drag(self, event):
         # 记录按下时的鼠标屏幕坐标和窗口位置
@@ -113,22 +128,19 @@ class OverlayApp:
         self._drag_origin = None
 
     def create_context_menu(self):
-        menu_font = ("Microsoft YaHei UI", 16)
-        bold_font = ("Microsoft YaHei UI", 16, "bold")
-
-        self.context_menu = tk.Menu(self.root, tearoff=0, font=menu_font)
+        self.context_menu = tk.Menu(self.root, tearoff=0, font=UI_FONT)
 
         # 第一组：透明度设置（选中态由 alpha_var 自动维护）
-        self.context_menu.add_command(label=" 透明度", state="disabled", font=bold_font)
+        self.context_menu.add_command(label=" 透明度", state="disabled", font=UI_FONT_BOLD)
         self.context_menu.add_separator()
         for alpha in ALPHA_CHOICES:
             self.context_menu.add_radiobutton(
                 label=f" {int(alpha * 100)}%", variable=self.alpha_var, value=alpha,
-                command=self.apply_alpha, font=menu_font)
+                command=self.apply_alpha, font=UI_FONT)
 
         # 第二组：信息
         self.context_menu.add_separator()
-        self.context_menu.add_command(label=" 信息", state="disabled", font=bold_font)
+        self.context_menu.add_command(label=" 信息", state="disabled", font=UI_FONT_BOLD)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="  关于本程序", command=self.show_about)
         self.context_menu.add_command(label="  退出", command=self.quit_app)
@@ -155,7 +167,7 @@ class OverlayApp:
         frame = ttk.Frame(about_window, padding="20")
         frame.pack(fill=tk.BOTH, expand=True)
 
-        title_label = ttk.Label(frame, text=APP_NAME_CHINESE, font=("Microsoft YaHei UI", 16, "bold"))
+        title_label = ttk.Label(frame, text=APP_NAME_CHINESE, font=UI_FONT_BOLD)
         title_label.pack(pady=10)
 
         version_label = ttk.Label(frame, text=f"版本: {APP_VERSION}")
@@ -172,9 +184,16 @@ class OverlayApp:
         ok_button.pack()
 
     def quit_app(self):
-        self.save_window_geometry()
-        self.root.destroy()
+        try:
+            self.save_window_geometry()
+        finally:
+            self.root.destroy()
+
+
+def main():
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    OverlayApp()
 
 
 if __name__ == "__main__":
-    app = OverlayApp()
+    main()
