@@ -46,7 +46,7 @@ Windows 桌面上的半透明置顶黑窗，可拖动、改透明度，位置、
 
 单文件 `TransparentOverlayV1.pyw`，只用标准库：
 
-- `desktop_bounds`：读取虚拟桌面范围（多显示器），失败退回主屏
+- `desktop_bounds`：读取扣除标题栏与边框后的虚拟桌面范围（多显示器），失败退回主屏
 - `clamp_window_state` / `read_window_state` / `write_window_state` / `step_alpha` / `compute_ui_scale`：配置与几何逻辑，不依赖界面控件，可直接测试
 - `OverlayApp`：界面与事件绑定
 - `main`：启动

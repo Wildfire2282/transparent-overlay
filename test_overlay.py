@@ -68,6 +68,29 @@ class WindowStateTest(unittest.TestCase):
         self.assertEqual(overlay.read_window_state(self.path, 1920, 1080),
                          (0, 0, 1920, 1080, 0.9))
 
+    def test_desktop_bounds_reserve_window_frame_and_fallback(self):
+        class Api:
+            values = {76: 0, 77: 0, 78: 1920, 79: 1080, 32: 4, 92: 4, 33: 4, 4: 23}
+
+            def GetSystemMetrics(self, index):
+                return self.values[index]
+
+        class Windll:
+            user32 = Api()
+
+        class Broken:
+            def __getattr__(self, name):
+                raise AttributeError(name)
+
+        original = overlay.ctypes.windll
+        try:
+            overlay.ctypes.windll = Windll()
+            self.assertEqual(overlay.desktop_bounds(800, 600), (0, 0, 1904, 1041))
+            overlay.ctypes.windll = Broken()
+            self.assertEqual(overlay.desktop_bounds(800, 600), (0, 0, 800, 600))
+        finally:
+            overlay.ctypes.windll = original
+
     def test_write_creates_missing_parent_directory(self):
         nested = Path(self.tmp.name) / "a" / "b" / "window_config.json"
         overlay.write_window_state(nested, 1, 2, 300, 200, 0.5)

@@ -33,13 +33,16 @@ UI_FONT_BOLD = ("Microsoft YaHei UI", 16, "bold")
 
 
 def desktop_bounds(screen_w, screen_h):
-    """虚拟桌面范围 (left, top, right, bottom)，含负坐标的多显示器；失败退回主屏"""
+    """可完整容纳窗口外框的虚拟桌面范围 (left, top, right, bottom)；失败退回主屏"""
     try:
         metrics = ctypes.windll.user32.GetSystemMetrics
         left, top = metrics(76), metrics(77)
         width, height = metrics(78), metrics(79)
         if width > 0 and height > 0:
-            return left, top, left + width, top + height
+            border = metrics(32) + metrics(92)  # SM_CXSIZEFRAME + SM_CXPADDEDBORDER
+            frame_w = 2 * border
+            frame_h = metrics(4) + 2 * (metrics(33) + metrics(92))  # 标题栏 + 上下边框
+            return left, top, left + width - frame_w, top + height - frame_h
     except (AttributeError, OSError):
         pass
     return 0, 0, screen_w, screen_h
