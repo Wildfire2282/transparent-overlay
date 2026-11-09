@@ -26,6 +26,11 @@ class WindowStateTest(unittest.TestCase):
         self.assertEqual(overlay.clamp_window_state(-500, 999999, 50, 40, 5, 0, 0, 1920, 1080),
                          (0, 980, 100, 100, 1.0))
         self.assertEqual(overlay.clamp_window_state(0, 0, 200, 200, 0, 0, 0, 1920, 1080)[4], 0.1)
+        # 贴边和超大窗口都被完整收回桌面内
+        self.assertEqual(overlay.clamp_window_state(1800, 1000, 480, 270, 0.9, 0, 0, 1920, 1080),
+                         (1440, 810, 480, 270, 0.9))
+        self.assertEqual(overlay.clamp_window_state(0, 0, 5000, 4000, 0.9, 0, 0, 1920, 1080),
+                         (0, 0, 1920, 1080, 0.9))
 
     def test_corrupt_file_uses_defaults(self):
         self.path.write_text("{not json", encoding="utf-8")
@@ -56,7 +61,12 @@ class WindowStateTest(unittest.TestCase):
             (-1500, -200, 480, 270, 0.9))
         self.assertEqual(
             overlay.clamp_window_state(-5000, 5000, 200, 200, 0.9, -1920, -300, 1920, 1080),
-            (-1920, 980, 200, 200, 0.9))
+            (-1920, 880, 200, 200, 0.9))
+
+    def test_oversized_saved_window_is_fitted_to_desktop(self):
+        self.path.write_text(json.dumps({"width": 5000, "height": 4000}), encoding="utf-8")
+        self.assertEqual(overlay.read_window_state(self.path, 1920, 1080),
+                         (0, 0, 1920, 1080, 0.9))
 
     def test_write_creates_missing_parent_directory(self):
         nested = Path(self.tmp.name) / "a" / "b" / "window_config.json"

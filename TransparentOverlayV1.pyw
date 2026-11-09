@@ -47,10 +47,10 @@ def desktop_bounds(screen_w, screen_h):
 
 def clamp_window_state(x, y, w, h, alpha, left, top, right, bottom):
     """把窗口状态限制在桌面内，尺寸和透明度保持在可用范围"""
-    x = min(max(x, left), max(right - 100, left))
-    y = min(max(y, top), max(bottom - 100, top))
-    w = max(w, 100)
-    h = max(h, 100)
+    w = min(max(w, 100), right - left)
+    h = min(max(h, 100), bottom - top)
+    x = min(max(x, left), max(right - w, left))
+    y = min(max(y, top), max(bottom - h, top))
     alpha = min(max(alpha, 0.1), 1.0)
     return x, y, w, h, alpha
 
@@ -227,6 +227,10 @@ class OverlayApp:
         w, h = about_window.winfo_reqwidth(), about_window.winfo_reqheight()
         x = self.root.winfo_x() + (self.root.winfo_width() - w) // 2
         y = self.root.winfo_y() + (self.root.winfo_height() - h) // 2
+        # 只取夹取后的位置，保证对话框完整可见，尺寸仍由内容决定
+        x, y, _, _, _ = clamp_window_state(
+            x, y, w, h, 1.0, *desktop_bounds(
+                self.root.winfo_screenwidth(), self.root.winfo_screenheight()))
         about_window.geometry(f"{x:+d}{y:+d}")
         about_window.transient(self.root)
         about_window.deiconify()
