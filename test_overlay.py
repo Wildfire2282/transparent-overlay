@@ -23,9 +23,9 @@ class WindowStateTest(unittest.TestCase):
                          (100, 100, 480, 270, 0.9))
 
     def test_offscreen_tiny_and_transparent_values_are_clamped(self):
-        self.assertEqual(overlay.clamp_window_state(-500, 999999, 50, 40, 5, 1920, 1080),
+        self.assertEqual(overlay.clamp_window_state(-500, 999999, 50, 40, 5, 0, 0, 1920, 1080),
                          (0, 980, 100, 100, 1.0))
-        self.assertEqual(overlay.clamp_window_state(0, 0, 200, 200, 0, 1920, 1080)[4], 0.1)
+        self.assertEqual(overlay.clamp_window_state(0, 0, 200, 200, 0, 0, 0, 1920, 1080)[4], 0.1)
 
     def test_corrupt_file_uses_defaults(self):
         self.path.write_text("{not json", encoding="utf-8")
@@ -43,6 +43,26 @@ class WindowStateTest(unittest.TestCase):
                          {"x": 30, "y": 500, "width": 300, "height": 200, "alpha": 0.25})
         self.assertEqual(overlay.read_window_state(self.path, 1920, 1080),
                          (30, 500, 300, 200, 0.25))
+
+    def test_non_finite_and_huge_numbers_use_defaults(self):
+        self.path.write_text('{"x": 1e400, "alpha": NaN}', encoding="utf-8")
+        self.assertEqual(overlay.read_window_state(self.path, 1920, 1080),
+                         (100, 100, 480, 270, 0.9))
+
+    def test_negative_multimonitor_position_is_kept(self):
+        self.path.write_text(json.dumps({"x": -1500, "y": -200}), encoding="utf-8")
+        self.assertEqual(
+            overlay.read_window_state(self.path, 1920, 1080, (-1920, -300, 1920, 1080)),
+            (-1500, -200, 480, 270, 0.9))
+        self.assertEqual(
+            overlay.clamp_window_state(-5000, 5000, 200, 200, 0.9, -1920, -300, 1920, 1080),
+            (-1920, 980, 200, 200, 0.9))
+
+    def test_write_creates_missing_parent_directory(self):
+        nested = Path(self.tmp.name) / "a" / "b" / "window_config.json"
+        overlay.write_window_state(nested, 1, 2, 300, 200, 0.5)
+        self.assertEqual(overlay.read_window_state(nested, 1920, 1080),
+                         (1, 2, 300, 200, 0.5))
 
     def test_wheel_step_clamps_and_rounds(self):
         self.assertEqual(overlay.step_alpha(0.9, 0.05), 0.95)

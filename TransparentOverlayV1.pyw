@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
+import ctypes
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -30,39 +32,60 @@ UI_FONT = ("Microsoft YaHei UI", 16)
 UI_FONT_BOLD = ("Microsoft YaHei UI", 16, "bold")
 
 
-def clamp_window_state(x, y, w, h, alpha, screen_w, screen_h):
-    """把窗口状态限制在屏幕内，尺寸和透明度保持在可用范围"""
-    x = min(max(x, 0), max(screen_w - 100, 0))
-    y = min(max(y, 0), max(screen_h - 100, 0))
+def desktop_bounds(screen_w, screen_h):
+    """虚拟桌面范围 (left, top, right, bottom)，含负坐标的多显示器；失败退回主屏"""
+    try:
+        metrics = ctypes.windll.user32.GetSystemMetrics
+        left, top = metrics(76), metrics(77)
+        width, height = metrics(78), metrics(79)
+        if width > 0 and height > 0:
+            return left, top, left + width, top + height
+    except (AttributeError, OSError):
+        pass
+    return 0, 0, screen_w, screen_h
+
+
+def clamp_window_state(x, y, w, h, alpha, left, top, right, bottom):
+    """把窗口状态限制在桌面内，尺寸和透明度保持在可用范围"""
+    x = min(max(x, left), max(right - 100, left))
+    y = min(max(y, top), max(bottom - 100, top))
     w = max(w, 100)
     h = max(h, 100)
     alpha = min(max(alpha, 0.1), 1.0)
     return x, y, w, h, alpha
 
 
-def read_window_state(path, screen_w, screen_h):
-    """读取配置；文件不存在或内容损坏时回到默认值"""
-    x, y, w, h, alpha = 100, 100, screen_w // 4, screen_h // 4, 0.9
+def read_window_state(path, screen_w, screen_h, bounds=None):
+    """读取配置；文件不存在、内容损坏或数值异常时回到默认值"""
+    defaults = (100, 100, screen_w // 4, screen_h // 4, 0.9)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        x = int(data.get("x", x))
-        y = int(data.get("y", y))
-        w = int(data.get("width", w))
-        h = int(data.get("height", h))
-        alpha = float(data.get("alpha", alpha))
-    except (OSError, ValueError, TypeError, AttributeError):
-        x, y, w, h, alpha = 100, 100, screen_w // 4, screen_h // 4, 0.9
-    return clamp_window_state(x, y, w, h, alpha, screen_w, screen_h)
+        state = (
+            int(data.get("x", defaults[0])),
+            int(data.get("y", defaults[1])),
+            int(data.get("width", defaults[2])),
+            int(data.get("height", defaults[3])),
+            float(data.get("alpha", defaults[4])),
+        )
+        if not math.isfinite(state[4]):
+            raise ValueError("alpha is not finite")
+    except (OSError, ValueError, TypeError, AttributeError, OverflowError):
+        state = defaults
+    left, top, right, bottom = bounds or (0, 0, screen_w, screen_h)
+    return clamp_window_state(*state, left, top, right, bottom)
 
 
 def write_window_state(path, x, y, w, h, alpha):
-    path.write_text(json.dumps({
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps({
         "x": x,
         "y": y,
         "width": w,
         "height": h,
         "alpha": alpha,
     }), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def step_alpha(alpha, delta):
@@ -79,7 +102,6 @@ class OverlayApp:
     def __init__(self):
         # 启用HDPI支持（必须在创建窗口前设置）
         try:
-            import ctypes
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
@@ -113,9 +135,10 @@ class OverlayApp:
         self.root.mainloop()
 
     def load_window_geometry(self):
+        screen_w, screen_h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         x, y, w, h, alpha = read_window_state(
-            CONFIG_FILE, self.root.winfo_screenwidth(), self.root.winfo_screenheight())
-        self.root.geometry(f"{w}x{h}+{x}+{y}")
+            CONFIG_FILE, screen_w, screen_h, desktop_bounds(screen_w, screen_h))
+        self.root.geometry(f"{w}x{h}{x:+d}{y:+d}")
         self.root.attributes('-alpha', alpha)
         self.current_alpha = alpha
 
@@ -134,7 +157,9 @@ class OverlayApp:
         if self._drag_origin is None:
             return
         start_x, start_y, win_x, win_y = self._drag_origin
-        self.root.geometry(f"+{win_x + event.x_root - start_x}+{win_y + event.y_root - start_y}")
+        x = win_x + event.x_root - start_x
+        y = win_y + event.y_root - start_y
+        self.root.geometry(f"{x:+d}{y:+d}")
 
     def stop_drag(self, _):
         self._drag_origin = None
@@ -202,7 +227,7 @@ class OverlayApp:
         w, h = about_window.winfo_reqwidth(), about_window.winfo_reqheight()
         x = self.root.winfo_x() + (self.root.winfo_width() - w) // 2
         y = self.root.winfo_y() + (self.root.winfo_height() - h) // 2
-        about_window.geometry(f"+{x}+{y}")
+        about_window.geometry(f"{x:+d}{y:+d}")
         about_window.transient(self.root)
         about_window.deiconify()
         about_window.grab_set()
@@ -216,7 +241,6 @@ class OverlayApp:
 
 
 def main():
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     OverlayApp()
 
 
