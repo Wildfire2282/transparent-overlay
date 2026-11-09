@@ -44,6 +44,11 @@ class WindowStateTest(unittest.TestCase):
         self.assertEqual(overlay.read_window_state(self.path, 1920, 1080),
                          (30, 500, 300, 200, 0.25))
 
+    def test_wheel_step_clamps_and_rounds(self):
+        self.assertEqual(overlay.step_alpha(0.9, 0.05), 0.95)
+        self.assertEqual(overlay.step_alpha(0.1, -0.05), 0.1)
+        self.assertEqual(overlay.step_alpha(1.0, 0.05), 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

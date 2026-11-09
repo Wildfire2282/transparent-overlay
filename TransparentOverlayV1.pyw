@@ -65,6 +65,11 @@ def write_window_state(path, x, y, w, h, alpha):
     }), encoding="utf-8")
 
 
+def step_alpha(alpha, delta):
+    """滚轮调整透明度，限制在 0.1–1.0"""
+    return min(max(round(alpha + delta, 2), 0.1), 1.0)
+
+
 class OverlayApp:
     def __init__(self):
         self.root = tk.Tk()
@@ -93,6 +98,7 @@ class OverlayApp:
         self.root.bind("<B1-Motion>", self.on_drag)
         self.root.bind("<ButtonRelease-1>", self.stop_drag)
         self.root.bind("<Button-3>", self.show_context_menu)  # 右键菜单
+        self.root.bind("<MouseWheel>", self.on_wheel)  # 滚轮调透明度
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)  # 点标题栏 X 也要保存
 
         # 创建右键菜单
@@ -131,7 +137,7 @@ class OverlayApp:
         self.context_menu = tk.Menu(self.root, tearoff=0, font=UI_FONT)
 
         # 第一组：透明度设置（选中态由 alpha_var 自动维护）
-        self.context_menu.add_command(label=" 透明度", state="disabled", font=UI_FONT_BOLD)
+        self.context_menu.add_command(label=" 透明度（滚轮可调）", state="disabled", font=UI_FONT_BOLD)
         self.context_menu.add_separator()
         for alpha in ALPHA_CHOICES:
             self.context_menu.add_radiobutton(
@@ -148,6 +154,11 @@ class OverlayApp:
     def show_context_menu(self, event):
         self.context_menu.tk_popup(event.x_root, event.y_root)
 
+    def on_wheel(self, event):
+        """滚轮上/下调整透明度，5% 一档"""
+        self.alpha_var.set(step_alpha(self.current_alpha, 0.05 if event.delta > 0 else -0.05))
+        self.apply_alpha()
+
     def apply_alpha(self):
         self.current_alpha = self.alpha_var.get()
         self.root.attributes('-alpha', self.current_alpha)
@@ -162,6 +173,7 @@ class OverlayApp:
             f"+{self.root.winfo_y() + (self.root.winfo_height() - 200) // 2}")
         about_window.transient(self.root)
         about_window.grab_set()
+        about_window.bind("<Escape>", lambda _: about_window.destroy())
 
         # 创建内容
         frame = ttk.Frame(about_window, padding="20")
