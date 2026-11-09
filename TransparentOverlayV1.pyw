@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 import sys
-import datetime
 
 # 程序中文名称
 APP_NAME_CHINESE = "透明悬浮窗"
@@ -13,7 +12,7 @@ APP_NAME_ENGLISH = "TransparentOverlay"
 # 程序版本
 APP_VERSION = "V1"
 # 程序最后修改时间
-APP_MODIFIED_DATE = "2025-06-17"
+APP_MODIFIED_DATE = "2026-11-09"
 
 # 获取用户配置文件夹路径
 if sys.platform == "win32":
@@ -24,6 +23,10 @@ else:
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_FILE = CONFIG_DIR / "window_config.json"
 
+# 右键菜单提供的透明度选项
+ALPHA_CHOICES = (0.25, 0.5, 0.75, 0.9, 1.0)
+
+
 class OverlayApp:
     def __init__(self):
         self.root = tk.Tk()
@@ -31,40 +34,28 @@ class OverlayApp:
         # 启用HDPI支持
         try:
             import ctypes
-            # 设置DPI感知
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except:
+        except Exception:
             pass
 
         # 设置tkinter缩放
         self.root.tk.call('tk', 'scaling', 1.5)  # 适配高DPI
 
-        # 修改：保持无边框但允许在任务栏显示
-        # self.root.overrideredirect(True)  # 注释掉这行，让窗口在任务栏显示
-        self.root.attributes('-toolwindow', 0)  # 确保在任务栏显示
         self.root.configure(bg='black')
         self.root.attributes('-topmost', True)  # 默认置顶
-        # 默认启动时透明度为90%
-        self.root.attributes('-alpha', 0.9)
-        self.current_alpha = 0.9  # 记录当前透明度
+        self.root.title(APP_NAME_CHINESE)  # 有标题才能从任务栏找到
 
-        # 设置窗口标题（虽然无边框，但有助于识别进程）
-        self.root.title(APP_NAME_CHINESE)
-
-        # 加载窗口配置
+        # 恢复位置、大小和透明度
         self.load_window_geometry()
+        self.alpha_var = tk.DoubleVar(value=self.current_alpha)
 
-        # 添加拖拽偏移量记录（使用屏幕绝对坐标）
-        self.drag_start_x = 0
-        self.drag_start_y = 0
-        self.window_start_x = 0
-        self.window_start_y = 0
-        self.window_start_w = 0
-        self.window_start_h = 0
-
-        self.dragging = None
-        self.resize_zone = 10
-        self.setup_bindings()
+        self._drag_origin = None
+        self.root.config(cursor="hand2")
+        self.root.bind("<ButtonPress-1>", self.start_drag)
+        self.root.bind("<B1-Motion>", self.on_drag)
+        self.root.bind("<ButtonRelease-1>", self.stop_drag)
+        self.root.bind("<Button-3>", self.show_context_menu)  # 右键菜单
+        self.root.protocol("WM_DELETE_WINDOW", self.quit_app)  # 点标题栏 X 也要保存
 
         # 创建右键菜单
         self.create_context_menu()
@@ -72,68 +63,69 @@ class OverlayApp:
         self.root.mainloop()
 
     def load_window_geometry(self):
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        default_width = screen_width // 4
-        default_height = screen_height // 4
-
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        x, y, w, h, alpha = 100, 100, sw // 4, sh // 4, 0.9
         if CONFIG_FILE.exists():
             try:
                 with open(CONFIG_FILE, 'r') as f:
                     data = json.load(f)
-                    x = data.get("x", 100)
-                    y = data.get("y", 100)
-                    w = data.get("width", default_width)
-                    h = data.get("height", default_height)
-                    self.root.geometry(f"{w}x{h}+{x}+{y}")
-            except:
-                self.root.geometry(f"{default_width}x{default_height}+100+100")
-        else:
-            self.root.geometry(f"{default_width}x{default_height}+100+100")
+                x = int(data.get("x", x))
+                y = int(data.get("y", y))
+                w = int(data.get("width", w))
+                h = int(data.get("height", h))
+                alpha = float(data.get("alpha", alpha))
+            except (OSError, ValueError, TypeError, AttributeError):
+                x, y, w, h, alpha = 100, 100, sw // 4, sh // 4, 0.9
+        # 换显示器或配置损坏时，别让窗口跑到屏幕外、缩成点或全透明
+        x = min(max(x, 0), max(sw - 100, 0))
+        y = min(max(y, 0), max(sh - 100, 0))
+        w = max(w, 100)
+        h = max(h, 100)
+        alpha = min(max(alpha, 0.1), 1.0)
+        self.root.geometry(f"{w}x{h}+{x}+{y}")
+        self.root.attributes('-alpha', alpha)
+        self.current_alpha = alpha
 
     def save_window_geometry(self):
-        x = self.root.winfo_x()
-        y = self.root.winfo_y()
-        w = self.root.winfo_width()
-        h = self.root.winfo_height()
+        if self.root.state() != "normal":
+            return  # 最小化/最大化时不保存，避免记下无效坐标
         with open(CONFIG_FILE, 'w') as f:
             json.dump({
-                "x": x,
-                "y": y,
-                "width": w,
-                "height": h
+                "x": self.root.winfo_x(),
+                "y": self.root.winfo_y(),
+                "width": self.root.winfo_width(),
+                "height": self.root.winfo_height(),
+                "alpha": self.current_alpha,
             }, f)
 
-    def center_window(self):
-        self.root.update_idletasks()
-        x = (self.root.winfo_screenwidth() // 2) - (300 // 2)
-        y = (self.root.winfo_screenheight() // 2) - (200 // 2)
-        self.root.geometry(f"300x200+{x}+{y}")
+    def start_drag(self, event):
+        # 记录按下时的鼠标屏幕坐标和窗口位置
+        self._drag_origin = (event.x_root, event.y_root, self.root.winfo_x(), self.root.winfo_y())
 
-    def setup_bindings(self):
-        self.root.bind("<ButtonPress-1>", self.start_drag)
-        self.root.bind("<B1-Motion>", self.on_drag)
-        self.root.bind("<ButtonRelease-1>", self.stop_drag)
-        self.root.bind("<Motion>", self.update_cursor)
-        self.root.bind("<Button-3>", self.show_context_menu)  # 右键菜单
+    def on_drag(self, event):
+        if self._drag_origin is None:
+            return
+        start_x, start_y, win_x, win_y = self._drag_origin
+        self.root.geometry(f"+{win_x + event.x_root - start_x}+{win_y + event.y_root - start_y}")
+
+    def stop_drag(self, _):
+        self._drag_origin = None
 
     def create_context_menu(self):
         menu_font = ("Microsoft YaHei UI", 16)
         bold_font = ("Microsoft YaHei UI", 16, "bold")
 
         self.context_menu = tk.Menu(self.root, tearoff=0, font=menu_font)
-        
-        # 第一组：透明度设置
+
+        # 第一组：透明度设置（选中态由 alpha_var 自动维护）
         self.context_menu.add_command(label=" 透明度", state="disabled", font=bold_font)
         self.context_menu.add_separator()
-        
-        # 透明度选项，向右移动一个字符
-        self.context_menu.add_command(label="  25%  ", command=lambda: self.set_alpha_cmd(0.25))
-        self.context_menu.add_command(label="  50%  ", command=lambda: self.set_alpha_cmd(0.5))
-        self.context_menu.add_command(label="  75%  ", command=lambda: self.set_alpha_cmd(0.75))
-        self.context_menu.add_command(label="  90%  ", command=lambda: self.set_alpha_cmd(0.9))
-        self.context_menu.add_command(label="  100% ", command=lambda: self.set_alpha_cmd(1.0))
-        
+        for alpha in ALPHA_CHOICES:
+            self.context_menu.add_radiobutton(
+                label=f" {int(alpha * 100)}%", variable=self.alpha_var, value=alpha,
+                command=self.apply_alpha, font=menu_font)
+
         # 第二组：信息
         self.context_menu.add_separator()
         self.context_menu.add_command(label=" 信息", state="disabled", font=bold_font)
@@ -141,160 +133,48 @@ class OverlayApp:
         self.context_menu.add_command(label="  关于本程序", command=self.show_about)
         self.context_menu.add_command(label="  退出", command=self.quit_app)
 
-        # 更新菜单选中状态
-        self.update_menu_checkmarks()
-
-    def update_menu_checkmarks(self):
-        """更新菜单中的选中状态标识"""
-        # 添加当前透明度的加粗标识
-        alpha_labels = {0.25: "25%", 0.5: "50%", 0.75: "75%", 0.9: "90%", 1.0: "100%"}
-        menu_font = ("Microsoft YaHei UI", 16)
-        bold_font = ("Microsoft YaHei UI", 16, "bold")
-        
-        # 遍历菜单项，找到透明度选项
-        for i in range(self.context_menu.index('end') + 1):
-            try:
-                label = self.context_menu.entrycget(i, 'label').strip()
-                if label in alpha_labels.values():
-                    # 检查是否是当前透明度
-                    if label == alpha_labels.get(self.current_alpha, ""):
-                        self.context_menu.entryconfig(i, font=bold_font)
-                    else:
-                        self.context_menu.entryconfig(i, font=menu_font)
-            except:
-                pass
-
     def show_context_menu(self, event):
-        self.update_menu_checkmarks()
         self.context_menu.tk_popup(event.x_root, event.y_root)
 
-    def get_cursor_direction(self, x, y):
-        w, h = self.root.winfo_width(), self.root.winfo_height()
-        if x < self.resize_zone and y < self.resize_zone:
-            return "nw"
-        elif x > w - self.resize_zone and y < self.resize_zone:
-            return "ne"
-        elif x < self.resize_zone and y > h - self.resize_zone:
-            return "sw"
-        elif x > w - self.resize_zone and y > h - self.resize_zone:
-            return "se"
-        else:
-            return "move"
-
-    def update_cursor(self, event):
-        direction = self.get_cursor_direction(event.x, event.y)
-        if direction == "move":
-            # 矩形区域（可移动区域）显示手掌图标
-            self.root.config(cursor="hand2")
-        else:
-            # 调整大小区域显示相应的调整光标
-            cursors = {"nw": "size_nw_se", "ne": "size_ne_sw", "sw": "size_ne_sw", "se": "size_nw_se"}
-            self.root.config(cursor=cursors[direction])
-
-    def start_drag(self, event):
-        self.dragging = self.get_cursor_direction(event.x, event.y)
-
-        # 记录所有必要的初始状态（使用屏幕绝对坐标）
-        self.drag_start_x = event.x_root
-        self.drag_start_y = event.y_root
-        self.window_start_x = self.root.winfo_x()
-        self.window_start_y = self.root.winfo_y()
-        self.window_start_w = self.root.winfo_width()
-        self.window_start_h = self.root.winfo_height()
-
-        # 设置拖拽时光标为手掌
-        self.root.config(cursor="hand2")
-
-    def on_drag(self, event):
-        if not self.dragging:
-            return
-
-        # 计算鼠标在屏幕上的绝对位移
-        dx = event.x_root - self.drag_start_x
-        dy = event.y_root - self.drag_start_y
-
-        if self.dragging == "move":
-            # 直接使用绝对位移计算新位置
-            new_x = self.window_start_x + dx
-            new_y = self.window_start_y + dy
-            self.root.geometry(f"+{int(new_x)}+{int(new_y)}")
-
-        elif self.dragging == "nw":
-            # 西北角调整：同时改变位置和尺寸
-            new_w = max(self.window_start_w - dx, 10)
-            new_h = max(self.window_start_h - dy, 10)
-            new_x = self.window_start_x + (self.window_start_w - new_w)
-            new_y = self.window_start_y + (self.window_start_h - new_h)
-            self.root.geometry(f"{int(new_w)}x{int(new_h)}+{int(new_x)}+{int(new_y)}")
-
-        elif self.dragging == "ne":
-            # 东北角调整：改变尺寸和Y位置
-            new_w = max(self.window_start_w + dx, 10)
-            new_h = max(self.window_start_h - dy, 10)
-            new_y = self.window_start_y + (self.window_start_h - new_h)
-            self.root.geometry(f"{int(new_w)}x{int(new_h)}+{self.window_start_x}+{int(new_y)}")
-
-        elif self.dragging == "sw":
-            # 西南角调整：改变尺寸和X位置
-            new_w = max(self.window_start_w - dx, 10)
-            new_h = max(self.window_start_h + dy, 10)
-            new_x = self.window_start_x + (self.window_start_w - new_w)
-            self.root.geometry(f"{int(new_w)}x{int(new_h)}+{int(new_x)}+{self.window_start_y}")
-
-        elif self.dragging == "se":
-            # 东南角调整：只改变尺寸
-            new_w = max(self.window_start_w + dx, 10)
-            new_h = max(self.window_start_h + dy, 10)
-            self.root.geometry(f"{int(new_w)}x{int(new_h)}+{self.window_start_x}+{self.window_start_y}")
-
-    def stop_drag(self, _):
-        self.dragging = None
-        # 恢复光标为默认（根据当前位置重新判断）
-        self.update_cursor(tk.Event())
-
-    def set_alpha_cmd(self, alpha):
-        """设置透明度并更新菜单状态"""
-        self.current_alpha = alpha
-        self.set_alpha(alpha)
-        self.update_menu_checkmarks()
-
-    def set_alpha(self, alpha):
-        self.root.attributes('-alpha', alpha)
+    def apply_alpha(self):
+        self.current_alpha = self.alpha_var.get()
+        self.root.attributes('-alpha', self.current_alpha)
 
     def show_about(self):
-        """显示关于窗口"""
+        """显示关于窗口，居中于主窗口"""
         about_window = tk.Toplevel(self.root)
         about_window.title("关于 " + APP_NAME_CHINESE)
-        about_window.geometry("400x200")
         about_window.resizable(False, False)
-        
-        # 确保窗口在父窗口中心
+        about_window.geometry(
+            f"400x200+{self.root.winfo_x() + (self.root.winfo_width() - 400) // 2}"
+            f"+{self.root.winfo_y() + (self.root.winfo_height() - 200) // 2}")
         about_window.transient(self.root)
         about_window.grab_set()
-        
+
         # 创建内容
         frame = ttk.Frame(about_window, padding="20")
         frame.pack(fill=tk.BOTH, expand=True)
-        
+
         title_label = ttk.Label(frame, text=APP_NAME_CHINESE, font=("Microsoft YaHei UI", 16, "bold"))
         title_label.pack(pady=10)
-        
+
         version_label = ttk.Label(frame, text=f"版本: {APP_VERSION}")
         version_label.pack(pady=5)
-        
+
         modified_label = ttk.Label(frame, text=f"最后修改时间: {APP_MODIFIED_DATE}")
         modified_label.pack(pady=5)
-        
+
         # 确定按钮
         button_frame = ttk.Frame(frame)
         button_frame.pack(pady=20)
-        
+
         ok_button = ttk.Button(button_frame, text="确定", command=about_window.destroy)
         ok_button.pack()
 
     def quit_app(self):
         self.save_window_geometry()
-        self.root.quit()
+        self.root.destroy()
+
 
 if __name__ == "__main__":
     app = OverlayApp()
