@@ -97,6 +97,10 @@ class WindowStateTest(unittest.TestCase):
         self.assertEqual(overlay.read_window_state(nested, 1920, 1080),
                          (1, 2, 300, 200, 0.5))
 
+    def test_geometry_position_keeps_negative_absolute_coordinates(self):
+        self.assertEqual(overlay.geometry_pos(-1500, -200), "+-1500+-200")
+        self.assertEqual(overlay.geometry_pos(100, 50), "+100+50")
+
     def test_wheel_step_clamps_and_rounds(self):
         self.assertEqual(overlay.step_alpha(0.9, 0.05), 0.95)
         self.assertEqual(overlay.step_alpha(0.1, -0.05), 0.1)

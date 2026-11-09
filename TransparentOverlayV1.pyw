@@ -91,6 +91,11 @@ def write_window_state(path, x, y, w, h, alpha):
     os.replace(tmp, path)
 
 
+def geometry_pos(x, y):
+    """Tk 几何串的绝对坐标：负值必须写成 '+-1500'，'-1500' 会被当成距右边缘"""
+    return f"+{x}+{y}"
+
+
 def step_alpha(alpha, delta):
     """滚轮调整透明度，限制在 0.1–1.0"""
     return min(max(round(alpha + delta, 2), 0.1), 1.0)
@@ -141,7 +146,7 @@ class OverlayApp:
         screen_w, screen_h = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         x, y, w, h, alpha = read_window_state(
             CONFIG_FILE, screen_w, screen_h, desktop_bounds(screen_w, screen_h))
-        self.root.geometry(f"{w}x{h}{x:+d}{y:+d}")
+        self.root.geometry(f"{w}x{h}{geometry_pos(x, y)}")
         self.root.attributes('-alpha', alpha)
         self.current_alpha = alpha
 
@@ -162,7 +167,7 @@ class OverlayApp:
         start_x, start_y, win_x, win_y = self._drag_origin
         x = win_x + event.x_root - start_x
         y = win_y + event.y_root - start_y
-        self.root.geometry(f"{x:+d}{y:+d}")
+        self.root.geometry(geometry_pos(x, y))
 
     def stop_drag(self, _):
         self._drag_origin = None
@@ -234,7 +239,7 @@ class OverlayApp:
         x, y, _, _, _ = clamp_window_state(
             x, y, w, h, 1.0, *desktop_bounds(
                 self.root.winfo_screenwidth(), self.root.winfo_screenheight()))
-        about_window.geometry(f"{x:+d}{y:+d}")
+        about_window.geometry(geometry_pos(x, y))
         about_window.transient(self.root)
         about_window.deiconify()
         about_window.grab_set()
