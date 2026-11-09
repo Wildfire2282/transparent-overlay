@@ -53,6 +53,16 @@ Windows 桌面上的半透明置顶黑窗，可拖动、改透明度，位置、
 
 单文件，不拆包：拆分会增加维护面。
 
+## 打包
+
+运行 `build_exe.bat`，或手动执行：
+
+```
+python -m PyInstaller --noconfirm --clean --onefile --windowed --name TransparentOverlayV1 TransparentOverlayV1.pyw
+```
+
+输出 `dist\TransparentOverlayV1.exe`，单个文件，目标机器无需安装 Python。`--windowed` 保证启动时不弹黑色控制台窗口。首次启动会解压到临时目录，比直接运行脚本稍慢；`build/`、`dist/` 和 `*.spec` 已加入 `.gitignore`。
+
 ## 测试
 
 ```
