@@ -30,11 +30,23 @@ Windows 桌面上的半透明置顶黑窗，可拖动、改透明度，位置、
 
 文件缺失或损坏时自动回退默认值，不影响启动。最小化/最大化状态下退出不会写配置。
 
+## 分辨率适配
+
+界面以 1080p / 96 DPI 为基准，按屏幕有效分辨率等比放大；小屏不缩小。窗口默认占屏幕 1/4。
+
+| 分辨率（100% 缩放） | 界面缩放 |
+|------|------|
+| 1920×1080 | 1.00 |
+| 2560×1440 | 1.33 |
+| 3840×2160 | 2.00 |
+
+系统 DPI 更高时，取 DPI 缩放与分辨率缩放中的较大值。关于窗口按内容自适应尺寸并居中。
+
 ## 代码结构
 
 单文件 `TransparentOverlayV1.pyw`，只用标准库：
 
-- `clamp_window_state` / `read_window_state` / `write_window_state`：纯数据逻辑，不依赖界面，可直接测试
+- `clamp_window_state` / `read_window_state` / `write_window_state` / `step_alpha` / `compute_ui_scale`：纯逻辑，不依赖界面，可直接测试
 - `OverlayApp`：界面与事件绑定
 - `main`：创建配置目录并启动
 

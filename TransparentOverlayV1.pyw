@@ -70,23 +70,29 @@ def step_alpha(alpha, delta):
     return min(max(round(alpha + delta, 2), 0.1), 1.0)
 
 
+def compute_ui_scale(screen_h, dpi):
+    """以 1080p/96DPI 为基准，取分辨率与 DPI 中更大的缩放需求，小屏不缩小"""
+    return max(1.0, screen_h / 1080, dpi / 96)
+
+
 class OverlayApp:
     def __init__(self):
-        self.root = tk.Tk()
-
-        # 启用HDPI支持
+        # 启用HDPI支持（必须在创建窗口前设置）
         try:
             import ctypes
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
 
-        # 设置tkinter缩放
-        self.root.tk.call('tk', 'scaling', 1.5)  # 适配高DPI
-
+        self.root = tk.Tk()
         self.root.configure(bg='black')
         self.root.attributes('-topmost', True)  # 默认置顶
         self.root.title(APP_NAME_CHINESE)  # 有标题才能从任务栏找到
+
+        # 按屏幕分辨率和 DPI 缩放界面
+        self.ui_scale = compute_ui_scale(
+            self.root.winfo_screenheight(), self.root.winfo_fpixels('1i'))
+        self.root.tk.call('tk', 'scaling', (96 / 72) * self.ui_scale)
 
         # 恢复位置、大小和透明度
         self.load_window_geometry()
@@ -164,36 +170,43 @@ class OverlayApp:
         self.root.attributes('-alpha', self.current_alpha)
 
     def show_about(self):
-        """显示关于窗口，居中于主窗口"""
+        """显示关于窗口，按内容定尺寸并居中于主窗口"""
+        scale = self.ui_scale
         about_window = tk.Toplevel(self.root)
+        about_window.withdraw()
         about_window.title("关于 " + APP_NAME_CHINESE)
         about_window.resizable(False, False)
-        about_window.geometry(
-            f"400x200+{self.root.winfo_x() + (self.root.winfo_width() - 400) // 2}"
-            f"+{self.root.winfo_y() + (self.root.winfo_height() - 200) // 2}")
-        about_window.transient(self.root)
-        about_window.grab_set()
-        about_window.bind("<Escape>", lambda _: about_window.destroy())
 
         # 创建内容
-        frame = ttk.Frame(about_window, padding="20")
+        frame = ttk.Frame(about_window, padding=int(20 * scale))
         frame.pack(fill=tk.BOTH, expand=True)
 
         title_label = ttk.Label(frame, text=APP_NAME_CHINESE, font=UI_FONT_BOLD)
-        title_label.pack(pady=10)
+        title_label.pack(pady=int(10 * scale))
 
         version_label = ttk.Label(frame, text=f"版本: {APP_VERSION}")
-        version_label.pack(pady=5)
+        version_label.pack(pady=int(5 * scale))
 
         modified_label = ttk.Label(frame, text=f"最后修改时间: {APP_MODIFIED_DATE}")
-        modified_label.pack(pady=5)
+        modified_label.pack(pady=int(5 * scale))
 
         # 确定按钮
         button_frame = ttk.Frame(frame)
-        button_frame.pack(pady=20)
+        button_frame.pack(pady=int(20 * scale))
 
         ok_button = ttk.Button(button_frame, text="确定", command=about_window.destroy)
         ok_button.pack()
+
+        # 尺寸由内容决定，再居中到主窗口
+        about_window.update_idletasks()
+        w, h = about_window.winfo_reqwidth(), about_window.winfo_reqheight()
+        x = self.root.winfo_x() + (self.root.winfo_width() - w) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - h) // 2
+        about_window.geometry(f"+{x}+{y}")
+        about_window.transient(self.root)
+        about_window.deiconify()
+        about_window.grab_set()
+        about_window.bind("<Escape>", lambda _: about_window.destroy())
 
     def quit_app(self):
         try:

@@ -49,6 +49,16 @@ class WindowStateTest(unittest.TestCase):
         self.assertEqual(overlay.step_alpha(0.1, -0.05), 0.1)
         self.assertEqual(overlay.step_alpha(1.0, 0.05), 1.0)
 
+    def test_ui_scale_for_common_resolutions(self):
+        self.assertAlmostEqual(overlay.compute_ui_scale(1080, 96), 1.0)
+        self.assertAlmostEqual(overlay.compute_ui_scale(1440, 96), 4 / 3)
+        self.assertAlmostEqual(overlay.compute_ui_scale(2160, 96), 2.0)
+        # 系统缩放更高时取较大值：4K@150% 按分辨率，1080p@150% 按 DPI
+        self.assertAlmostEqual(overlay.compute_ui_scale(2160, 144), 2.0)
+        self.assertAlmostEqual(overlay.compute_ui_scale(1080, 144), 1.5)
+        # 小屏不缩小
+        self.assertAlmostEqual(overlay.compute_ui_scale(768, 96), 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()
